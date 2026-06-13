@@ -42,6 +42,7 @@ export interface WhatsAppWebJsConfig {
   puppeteer?: {
     headless?: boolean;
     args?: string[];
+    executablePath?: string;
   };
   // Phase 3: Proxy per session
   proxy?: {
@@ -88,6 +89,11 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         );
       }
 
+      // Allow using a system-installed Chrome instead of the Puppeteer-bundled
+      // download (which may be missing). Falls back to Puppeteer's default.
+      const executablePath =
+        this.config.puppeteer?.executablePath || process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+
       this.client = new Client({
         authStrategy: new LocalAuth({
           clientId: this.config.sessionId,
@@ -96,6 +102,15 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         puppeteer: {
           headless: this.config.puppeteer?.headless ?? true,
           args: puppeteerArgs,
+          ...(executablePath ? { executablePath } : {}),
+        },
+        // Pin a known-good WhatsApp Web build. Without this the client can get
+        // stuck on the loading screen after `authenticated` (ready never fires),
+        // especially when restoring a saved session.
+        webVersionCache: {
+          type: 'remote',
+          remotePath:
+            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1041420778-alpha.html',
         },
       });
 
@@ -282,7 +297,8 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
   async sendTextMessage(chatId: string, text: string): Promise<MessageResult> {
     this.ensureReady();
-    const msg = await this.client!.sendMessage(chatId, text);
+    const recipientId = await this.resolveRecipientId(chatId);
+    const msg = await this.client!.sendMessage(recipientId, text);
     return {
       id: msg.id._serialized,
       timestamp: msg.timestamp,
@@ -323,7 +339,8 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       messageMedia = new MessageMedia(media.mimetype, media.data.toString('base64'), media.filename);
     }
 
-    const msg = await this.client!.sendMessage(chatId, messageMedia, {
+    const recipientId = await this.resolveRecipientId(chatId);
+    const msg = await this.client!.sendMessage(recipientId, messageMedia, {
       caption: media.caption,
     });
 
@@ -932,5 +949,26 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     if (this.status !== EngineStatus.READY || !this.client) {
       throw new Error('WhatsApp client is not ready');
     }
+  }
+
+  /**
+   * Resolve a recipient identifier to a chat id WhatsApp can route to.
+   *
+   * Individual numbers are looked up via getNumberId, which registers the
+   * WID/LID mapping and avoids the "No LID for user" error WhatsApp throws when
+   * sending to an unresolved `<number>@c.us`. Groups, channels, and already
+   * LID-serialized ids are passed through unchanged.
+   */
+  private async resolveRecipientId(chatId: string): Promise<string> {
+    if (/@(g\.us|newsletter|lid|broadcast)$/.test(chatId)) {
+      return chatId;
+    }
+
+    const number = chatId.replace(/@c\.us$/, '').replace(/[^0-9]/g, '');
+    const numberId = await this.client!.getNumberId(number);
+    if (!numberId) {
+      throw new Error(`Number is not registered on WhatsApp: ${number}`);
+    }
+    return numberId._serialized;
   }
 }
