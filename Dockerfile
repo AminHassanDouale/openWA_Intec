@@ -22,8 +22,11 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the API
 RUN npm run build
+
+# Build the dashboard (served by the API at the root path in production)
+RUN cd dashboard && npm ci && npm run build
 
 # ===== Stage 2: Production =====
 FROM node:22-slim AS production
@@ -68,6 +71,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
+
+# Copy the built dashboard so the API can serve it at the root path
+COPY --from=builder /app/dashboard/dist ./dashboard/dist
 
 # Create data directories with proper permissions
 RUN mkdir -p ./data/sessions ./data/media && \

@@ -2,6 +2,9 @@ import { Module, DynamicModule, Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+import { existsSync } from 'fs';
 import configuration from './config/configuration';
 import { SessionModule } from './modules/session/session.module';
 import { MessageModule } from './modules/message/message.module';
@@ -37,8 +40,26 @@ if (process.env.QUEUE_ENABLED === 'true') {
   queueModules.push(queueModule.QueueModule);
 }
 
+// Serve the built dashboard (SPA) at the root path when present. The API keeps
+// its `/api` prefix; everything else falls back to the dashboard's index.html
+// for client-side routing. Only registered if a build exists so `npm run dev`
+// (where Vite serves the dashboard separately) is unaffected.
+const dashboardDist = join(process.cwd(), 'dashboard', 'dist');
+const staticModules: Array<Type | DynamicModule> = [];
+if (existsSync(join(dashboardDist, 'index.html'))) {
+  staticModules.push(
+    ServeStaticModule.forRoot({
+      rootPath: dashboardDist,
+      exclude: ['/api/{*splat}'],
+    }),
+  );
+}
+
 @Module({
   imports: [
+    // Static dashboard (only when a build is present)
+    ...staticModules,
+
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
