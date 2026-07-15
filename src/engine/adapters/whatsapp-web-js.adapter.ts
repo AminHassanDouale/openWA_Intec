@@ -95,6 +95,14 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       const executablePath =
         this.config.puppeteer?.executablePath || process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
 
+      // WhatsApp Web build selection. By default we let whatsapp-web.js use the
+      // build it bundles and is tested against (its injected send code is written
+      // for that exact version). Overriding it with a mismatched newer build makes
+      // internal sendMessage return null. Only pin a specific build via
+      // WWEBJS_WEB_VERSION_URL if you must work around a loading-screen hang;
+      // current builds are listed at github.com/wppconnect-team/wa-version.
+      const webVersionUrl = process.env.WWEBJS_WEB_VERSION_URL;
+
       this.client = new Client({
         authStrategy: new LocalAuth({
           clientId: this.config.sessionId,
@@ -105,18 +113,9 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
           args: puppeteerArgs,
           ...(executablePath ? { executablePath } : {}),
         },
-        // Pin a known-good WhatsApp Web build. Without this the client can get
-        // stuck on the loading screen after `authenticated` (ready never fires),
-        // and an out-of-date build breaks internal sendMessage (returns null for
-        // @lid recipients). WhatsApp deprecates old web builds over time, so the
-        // URL is overridable via WWEBJS_WEB_VERSION_URL to bump it without a code
-        // change. Find current builds at github.com/wppconnect-team/wa-version.
-        webVersionCache: {
-          type: 'remote',
-          remotePath:
-            process.env.WWEBJS_WEB_VERSION_URL ||
-            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1043180520-alpha.html',
-        },
+        ...(webVersionUrl
+          ? { webVersionCache: { type: 'remote' as const, remotePath: webVersionUrl } }
+          : {}),
       });
 
       this.setupEventHandlers();
