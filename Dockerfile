@@ -54,9 +54,11 @@ RUN apt-get update && apt-get install -y \
     dumb-init \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Chrome executable path for Puppeteer
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Use the version-pinned Chrome that whatsapp-web.js/puppeteer is built against
+# (installed below), NOT Debian's rolling `chromium` package — the rolling
+# version drifts and breaks the library's injected sendMessage/getChat code.
+# The apt `chromium` above is kept only for its shared-library dependencies.
+ENV PUPPETEER_CACHE_DIR=/opt/puppeteer
 
 # Create app user for security
 RUN groupadd -r openwa && useradd -r -g openwa openwa
@@ -68,6 +70,13 @@ COPY package*.json ./
 
 # Install production dependencies only
 RUN npm ci --omit=dev && npm cache clean --force
+
+# Download the exact Chrome build puppeteer (and thus whatsapp-web.js) pins, so
+# the WhatsApp Web engine runs on a browser version it is tested against. Symlink
+# the resolved binary to a stable path and point Puppeteer at it explicitly.
+RUN npx puppeteer browsers install chrome \
+    && ln -sf "$(node -e "console.log(require('puppeteer').executablePath())")" /usr/local/bin/chrome-pinned
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-pinned
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
