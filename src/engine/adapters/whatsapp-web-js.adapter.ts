@@ -95,13 +95,16 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       const executablePath =
         this.config.puppeteer?.executablePath || process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
 
-      // WhatsApp Web build selection. By default we let whatsapp-web.js use the
-      // build it bundles and is tested against (its injected send code is written
-      // for that exact version). Overriding it with a mismatched newer build makes
-      // internal sendMessage return null. Only pin a specific build via
-      // WWEBJS_WEB_VERSION_URL if you must work around a loading-screen hang;
-      // current builds are listed at github.com/wppconnect-team/wa-version.
-      const webVersionUrl = process.env.WWEBJS_WEB_VERSION_URL;
+      // Pin the WhatsApp Web build. whatsapp-web.js's injected code (getChat /
+      // sendMessage via WAWebFindChatAction) only works against a matching web
+      // build. Its own default (2.3000.1017054665) is no longer downloadable, so
+      // the local cache silently falls back to the *latest* live build, which is
+      // too new — getChat then returns null and sends fail. Pin a known-good
+      // build; overridable via WWEBJS_WEB_VERSION_URL when it eventually drifts.
+      // Current builds: github.com/wppconnect-team/wa-version.
+      const webVersionUrl =
+        process.env.WWEBJS_WEB_VERSION_URL ||
+        'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1041420778-alpha.html';
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -113,9 +116,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
           args: puppeteerArgs,
           ...(executablePath ? { executablePath } : {}),
         },
-        ...(webVersionUrl
-          ? { webVersionCache: { type: 'remote' as const, remotePath: webVersionUrl } }
-          : {}),
+        webVersionCache: { type: 'remote' as const, remotePath: webVersionUrl },
       });
 
       this.setupEventHandlers();
@@ -1007,15 +1008,12 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
   /**
    * Resolve a recipient identifier to a chat id WhatsApp can route to.
    *
-   * For individual numbers we call getNumberId first: it validates the number is
-   * on WhatsApp and, crucially, populates WhatsApp's internal WID/LID mapping
-   * cache — which is what prevents the "No LID for user" error. We then send to
-   * the `<number>@c.us` chat id rather than getNumberId's `_serialized` value,
-   * because on current builds that value can be a raw `@lid` id, and
-   * sendMessage() returns null (no message) when given a bare `@lid`.
-   *
-   * Groups, channels, broadcast, and ids the caller already serialized as `@lid`
-   * are passed through unchanged.
+   * Individual numbers are resolved via getNumberId, which validates the number
+   * is on WhatsApp and returns the id WhatsApp actually routes to — on current
+   * builds that is a `@lid` id for LID-addressed contacts. We send to that
+   * `_serialized` id; sending to a plain `<number>@c.us` fails to resolve a chat
+   * for such contacts. Groups, channels, broadcast, and already-`@lid` ids pass
+   * through unchanged.
    */
   private async resolveRecipientId(chatId: string): Promise<string> {
     if (/@(g\.us|newsletter|lid|broadcast)$/.test(chatId)) {
@@ -1027,6 +1025,6 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     if (!numberId) {
       throw new Error(`Number is not registered on WhatsApp: ${number}`);
     }
-    return `${number}@c.us`;
+    return numberId._serialized;
   }
 }
