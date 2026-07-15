@@ -107,11 +107,15 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         },
         // Pin a known-good WhatsApp Web build. Without this the client can get
         // stuck on the loading screen after `authenticated` (ready never fires),
-        // especially when restoring a saved session.
+        // and an out-of-date build breaks internal sendMessage (returns null for
+        // @lid recipients). WhatsApp deprecates old web builds over time, so the
+        // URL is overridable via WWEBJS_WEB_VERSION_URL to bump it without a code
+        // change. Find current builds at github.com/wppconnect-team/wa-version.
         webVersionCache: {
           type: 'remote',
           remotePath:
-            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1041420778-alpha.html',
+            process.env.WWEBJS_WEB_VERSION_URL ||
+            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1043180520-alpha.html',
         },
       });
 
