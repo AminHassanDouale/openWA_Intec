@@ -33,6 +33,11 @@ export class Session {
   @Column({ type: 'varchar', length: 100, nullable: true })
   pushName: string | null;
 
+  // Whether the watchdog should keep this session running (set on start, cleared
+  // on stop). Lets sessions auto-recover after a disconnect or a server restart.
+  @Column({ type: 'boolean', default: false })
+  autoStart: boolean;
+
   @Column({ type: jsonColumnType(), default: '{}' })
   config: Record<string, unknown>;
 

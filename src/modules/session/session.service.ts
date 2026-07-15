@@ -34,6 +34,12 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
   // Reconnection state per session
   private reconnectStates: Map<string, ReconnectState> = new Map();
 
+  // Periodic watchdog that restarts sessions that should be running (autoStart)
+  // but are not currently connected — covers server restarts, exhausted
+  // reconnect attempts, and unexpected drops.
+  private watchdogTimer: NodeJS.Timeout | null = null;
+  private static readonly WATCHDOG_INTERVAL_MS = 60_000;
+
   constructor(
     @InjectRepository(Session, 'data')
     private readonly sessionRepository: Repository<Session>,
@@ -68,9 +74,69 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
         affected: result.affected,
       });
     }
+
+    // Backfill: any session that has linked before (has a phone) should be kept
+    // running by the watchdog, so existing sessions auto-recover after this
+    // upgrade without needing a manual start.
+    await this.sessionRepository
+      .createQueryBuilder()
+      .update()
+      .set({ autoStart: true })
+      .where('phone IS NOT NULL')
+      .execute()
+      .catch(() => undefined);
+
+    // Give the app a moment to finish booting, then start the watchdog. The
+    // first tick restarts any autoStart session that isn't running (e.g. after
+    // a deploy/restart); subsequent ticks keep them alive.
+    this.watchdogTimer = setInterval(() => {
+      void this.reconcileSessions();
+    }, SessionService.WATCHDOG_INTERVAL_MS);
+    setTimeout(() => void this.reconcileSessions(), 8_000);
+  }
+
+  /**
+   * Restart sessions that should be running (autoStart = true) but have no live
+   * engine — because the server restarted, reconnect attempts were exhausted, or
+   * the browser dropped. Sessions currently starting/connected (in the engines
+   * map) and those the user intentionally stopped (autoStart = false) are left
+   * alone. Starts are staggered to avoid a memory spike from launching several
+   * Chrome instances at once.
+   */
+  private async reconcileSessions(): Promise<void> {
+    let candidates: Session[];
+    try {
+      candidates = await this.sessionRepository.find({ where: { autoStart: true } });
+    } catch {
+      return;
+    }
+
+    for (const session of candidates) {
+      if (this.engines.has(session.id)) continue; // already running/starting
+      try {
+        this.logger.log(`Watchdog restarting session: ${session.name}`, {
+          sessionId: session.id,
+          action: 'watchdog_restart',
+        });
+        await this.start(session.id);
+      } catch (error) {
+        this.logger.warn(`Watchdog restart failed for ${session.name}`, {
+          sessionId: session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      // Stagger so multiple Chrome launches don't spike memory simultaneously.
+      await new Promise(resolve => setTimeout(resolve, 5_000));
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Stop the watchdog first so it does not restart engines during shutdown
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+
     // Clean up all engines on shutdown
     for (const [sessionId, engine] of this.engines) {
       this.logger.log(`Destroying engine for session ${sessionId}`, {
@@ -189,6 +255,12 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
 
     if (this.engines.has(id)) {
       throw new BadRequestException('Session is already started');
+    }
+
+    // Mark intent to run so the watchdog keeps this session alive after drops
+    // or restarts. Cleared by stop().
+    if (!session.autoStart) {
+      await this.sessionRepository.update(id, { autoStart: true });
     }
 
     // Execute hook before starting
@@ -421,7 +493,21 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
         sessionId: id,
         action: 'reconnect_error',
       });
-      // Schedule another attempt
+      // initializeEngine registers the engine before launching the browser; if
+      // it failed, remove the dead engine so this session isn't left "half up"
+      // in the map — otherwise the watchdog would skip it and it could never
+      // recover once reconnect attempts are exhausted.
+      const failed = this.engines.get(id);
+      if (failed) {
+        this.engines.delete(id);
+        try {
+          await failed.destroy();
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+      // Schedule another attempt (gives up after maxAttempts; the watchdog is
+      // the longer-term backstop that will retry later).
       this.scheduleReconnect(id, session);
     }
   }
@@ -437,6 +523,10 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
 
   async stop(id: string): Promise<Session> {
     const session = await this.findOne(id);
+
+    // Clear intent to run so the watchdog does not restart an intentionally
+    // stopped session.
+    await this.sessionRepository.update(id, { autoStart: false });
 
     // Cancel any reconnection attempts
     this.cancelReconnect(id);
