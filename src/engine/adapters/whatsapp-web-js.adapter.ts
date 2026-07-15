@@ -1008,10 +1008,15 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
   /**
    * Resolve a recipient identifier to a chat id WhatsApp can route to.
    *
-   * Individual numbers are looked up via getNumberId, which registers the
-   * WID/LID mapping and avoids the "No LID for user" error WhatsApp throws when
-   * sending to an unresolved `<number>@c.us`. Groups, channels, and already
-   * LID-serialized ids are passed through unchanged.
+   * For individual numbers we call getNumberId first: it validates the number is
+   * on WhatsApp and, crucially, populates WhatsApp's internal WID/LID mapping
+   * cache — which is what prevents the "No LID for user" error. We then send to
+   * the `<number>@c.us` chat id rather than getNumberId's `_serialized` value,
+   * because on current builds that value can be a raw `@lid` id, and
+   * sendMessage() returns null (no message) when given a bare `@lid`.
+   *
+   * Groups, channels, broadcast, and ids the caller already serialized as `@lid`
+   * are passed through unchanged.
    */
   private async resolveRecipientId(chatId: string): Promise<string> {
     if (/@(g\.us|newsletter|lid|broadcast)$/.test(chatId)) {
@@ -1023,6 +1028,6 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     if (!numberId) {
       throw new Error(`Number is not registered on WhatsApp: ${number}`);
     }
-    return numberId._serialized;
+    return `${number}@c.us`;
   }
 }
