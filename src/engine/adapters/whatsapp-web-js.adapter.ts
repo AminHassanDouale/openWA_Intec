@@ -149,10 +149,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
    */
   private clearStaleBrowserLocks(): void {
     try {
-      const profileDir = path.join(
-        path.resolve(this.config.sessionDataPath),
-        `session-${this.config.sessionId}`,
-      );
+      const profileDir = path.join(path.resolve(this.config.sessionDataPath), `session-${this.config.sessionId}`);
       for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile']) {
         try {
           fs.rmSync(path.join(profileDir, name), { force: true, recursive: true });
@@ -343,9 +340,8 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     const recipientId = await this.resolveRecipientId(chatId);
     const msg = await this.client!.sendMessage(recipientId, text);
     if (!msg?.id?._serialized) {
-      throw new Error(
-        `sendMessage returned no message for ${recipientId} - session browser context may be dead`,
-      );
+      const diag = await this.collectSendDiagnostics(recipientId);
+      throw new Error(`sendMessage returned null for ${recipientId}. diag=${diag}`);
     }
     return {
       id: msg.id._serialized,
@@ -393,9 +389,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     });
 
     if (!msg?.id?._serialized) {
-      throw new Error(
-        `sendMessage returned no message for ${recipientId} - session browser context may be dead`,
-      );
+      throw new Error(`sendMessage returned no message for ${recipientId} - session browser context may be dead`);
     }
 
     return {
@@ -1026,5 +1020,57 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       throw new Error(`Number is not registered on WhatsApp: ${number}`);
     }
     return numberId._serialized;
+  }
+
+  /**
+   * When sendMessage returns null, inspect the WhatsApp Web page to learn why:
+   * which web build loaded, whether the injected helpers exist, and what the
+   * internal findOrCreateLatestChat call actually returns/throws. Returned as a
+   * JSON string so it lands in the error/log for a single diagnostic pass.
+   */
+  private async collectSendDiagnostics(chatId: string): Promise<string> {
+    try {
+      const page = (
+        this.client as unknown as {
+          pupPage?: { evaluate: (fn: (id: string) => Promise<string>, id: string) => Promise<string> };
+        }
+      ).pupPage;
+      if (!page) return 'no-pupPage';
+      const result = await page.evaluate(async (id: string) => {
+        const w = window as unknown as {
+          Debug?: { VERSION?: string };
+          WWebJS?: { getChat?: unknown };
+          require?: (m: string) => unknown;
+        };
+        const out: Record<string, unknown> = {};
+        try {
+          out.waVersion = w.Debug?.VERSION ?? 'unknown';
+        } catch {
+          out.waVersion = 'debug-threw';
+        }
+        out.wwebjs = typeof w.WWebJS;
+        out.getChat = typeof w.WWebJS?.getChat;
+        out.require = typeof w.require;
+        try {
+          const wf = w.require?.('WAWebWidFactory') as { createWid?: (s: string) => unknown } | undefined;
+          const fca = w.require?.('WAWebFindChatAction') as
+            | { findOrCreateLatestChat?: (wid: unknown) => Promise<unknown> }
+            | undefined;
+          out.widFactory = typeof wf?.createWid;
+          out.findChatAction = typeof fca?.findOrCreateLatestChat;
+          if (wf?.createWid && fca?.findOrCreateLatestChat) {
+            const wid = wf.createWid(id);
+            const res = await fca.findOrCreateLatestChat(wid);
+            out.findResult = res ? Object.keys(res).join(',') : 'null-or-undefined';
+          }
+        } catch (e) {
+          out.findError = (e as Error).message;
+        }
+        return JSON.stringify(out);
+      }, chatId);
+      return String(result);
+    } catch (e) {
+      return 'diag-error:' + (e as Error).message;
+    }
   }
 }
