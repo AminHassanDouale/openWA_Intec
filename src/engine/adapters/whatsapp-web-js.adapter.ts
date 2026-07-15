@@ -1003,10 +1003,12 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
    * Resolve a recipient identifier to a chat id WhatsApp can route to.
    *
    * Individual numbers are resolved via getNumberId, which validates the number
-   * is on WhatsApp and returns the id WhatsApp actually routes to — on current
-   * builds that is a `@lid` id for LID-addressed contacts. We send to that
-   * `_serialized` id; sending to a plain `<number>@c.us` fails to resolve a chat
-   * for such contacts. Groups, channels, broadcast, and already-`@lid` ids pass
+   * is on WhatsApp and, as a side effect, primes WhatsApp's WID/LID mapping. We
+   * then send to the `<number>@c.us` chat id (not getNumberId's `_serialized`,
+   * which is a raw `@lid` for LID contacts): the injected sendMessage derives the
+   * sender from `chat.id.isLid() ? meLidUser : mePnUser`, and for a `@lid` chat
+   * meLidUser is often null, so the send silently returns null. A `@c.us` chat
+   * uses the always-present phone user. Groups/channels/broadcast/`@lid` pass
    * through unchanged.
    */
   private async resolveRecipientId(chatId: string): Promise<string> {
@@ -1019,7 +1021,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     if (!numberId) {
       throw new Error(`Number is not registered on WhatsApp: ${number}`);
     }
-    return numberId._serialized;
+    return `${number}@c.us`;
   }
 
   /**
@@ -1048,23 +1050,36 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
         } catch {
           out.waVersion = 'debug-threw';
         }
+        const wwebjs = w.WWebJS as
+          | {
+              getChat?: (id: string, o: { getAsModel: boolean }) => Promise<unknown>;
+              sendMessage?: (chat: unknown, content: string, options: unknown) => Promise<unknown>;
+            }
+          | undefined;
         out.wwebjs = typeof w.WWebJS;
-        out.getChat = typeof w.WWebJS?.getChat;
-        out.require = typeof w.require;
+        out.getChat = typeof wwebjs?.getChat;
+        out.sendMessageFn = typeof wwebjs?.sendMessage;
         try {
-          const wf = w.require?.('WAWebWidFactory') as { createWid?: (s: string) => unknown } | undefined;
-          const fca = w.require?.('WAWebFindChatAction') as
-            | { findOrCreateLatestChat?: (wid: unknown) => Promise<unknown> }
+          const meUsers = w.require?.('WAWebUserPrefsMeUser') as
+            | { getMaybeMeLidUser?: () => unknown; getMaybeMePnUser?: () => unknown }
             | undefined;
-          out.widFactory = typeof wf?.createWid;
-          out.findChatAction = typeof fca?.findOrCreateLatestChat;
-          if (wf?.createWid && fca?.findOrCreateLatestChat) {
-            const wid = wf.createWid(id);
-            const res = await fca.findOrCreateLatestChat(wid);
-            out.findResult = res ? Object.keys(res).join(',') : 'null-or-undefined';
+          out.meLidUser = meUsers?.getMaybeMeLidUser ? (meUsers.getMaybeMeLidUser() ? 'present' : 'null') : 'no-fn';
+          out.mePnUser = meUsers?.getMaybeMePnUser ? (meUsers.getMaybeMePnUser() ? 'present' : 'null') : 'no-fn';
+        } catch (e) {
+          out.meUserError = (e as Error).message;
+        }
+        try {
+          if (wwebjs?.getChat) {
+            const chat = (await wwebjs.getChat(id, { getAsModel: false })) as { id?: { isLid?: () => boolean } } | null;
+            out.chat = chat ? 'resolved' : 'null';
+            out.chatIsLid = typeof chat?.id?.isLid === 'function' ? chat.id.isLid() : 'no-fn';
+            if (chat && wwebjs.sendMessage) {
+              const probe = await wwebjs.sendMessage(chat, 'diag-probe', {});
+              out.probeSend = probe ? 'MESSAGE-RETURNED' : 'null-returned';
+            }
           }
         } catch (e) {
-          out.findError = (e as Error).message;
+          out.sendProbeError = (e as Error).message;
         }
         return JSON.stringify(out);
       }, chatId);
