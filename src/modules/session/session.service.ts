@@ -213,7 +213,26 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       baseDelay: config?.reconnectBaseDelay ?? 5000,
     });
 
-    await this.initializeEngine(id, session);
+    try {
+      await this.initializeEngine(id, session);
+    } catch (error) {
+      // initializeEngine registers the engine in the map *before* launching the
+      // browser. If the launch fails (e.g. Chromium crash / stale lock), remove
+      // the dead engine so the session can be started again — otherwise every
+      // retry throws "Session is already started" until a manual stop.
+      const failed = this.engines.get(id);
+      if (failed) {
+        this.engines.delete(id);
+        try {
+          await failed.destroy();
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+      this.cancelReconnect(id);
+      await this.updateStatus(id, SessionStatus.FAILED);
+      throw error;
+    }
     return this.findOne(id);
   }
 

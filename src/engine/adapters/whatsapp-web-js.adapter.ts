@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { Client, LocalAuth, MessageMedia, MessageTypes } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
   IWhatsAppEngine,
   EngineStatus,
@@ -115,10 +116,48 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       });
 
       this.setupEventHandlers();
+
+      // Remove stale Chromium lock files left behind by an unclean shutdown
+      // (e.g. a container restart). Otherwise the browser refuses to launch and
+      // the session start fails with a generic 500.
+      this.clearStaleBrowserLocks();
+
       await this.client.initialize();
     } catch (error) {
       this.setStatus(EngineStatus.FAILED);
+      // Tear down the half-open browser so it does not leak a Chromium process
+      // or hold the profile lock, which would block the next start attempt.
+      try {
+        await this.client?.destroy();
+      } catch {
+        /* ignore cleanup errors */
+      }
+      this.client = null;
       throw error;
+    }
+  }
+
+  /**
+   * Delete Chromium singleton lock files from this session's user-data dir.
+   * whatsapp-web.js LocalAuth stores the profile at
+   * `<sessionDataPath>/session-<sessionId>`; a crash leaves `SingletonLock`
+   * (and friends) behind, which makes a fresh Chromium launch fail.
+   */
+  private clearStaleBrowserLocks(): void {
+    try {
+      const profileDir = path.join(
+        path.resolve(this.config.sessionDataPath),
+        `session-${this.config.sessionId}`,
+      );
+      for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile']) {
+        try {
+          fs.rmSync(path.join(profileDir, name), { force: true, recursive: true });
+        } catch {
+          /* ignore individual lock removal errors */
+        }
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -299,6 +338,11 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     this.ensureReady();
     const recipientId = await this.resolveRecipientId(chatId);
     const msg = await this.client!.sendMessage(recipientId, text);
+    if (!msg?.id?._serialized) {
+      throw new Error(
+        `sendMessage returned no message for ${recipientId} - session browser context may be dead`,
+      );
+    }
     return {
       id: msg.id._serialized,
       timestamp: msg.timestamp,
@@ -343,6 +387,12 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     const msg = await this.client!.sendMessage(recipientId, messageMedia, {
       caption: media.caption,
     });
+
+    if (!msg?.id?._serialized) {
+      throw new Error(
+        `sendMessage returned no message for ${recipientId} - session browser context may be dead`,
+      );
+    }
 
     return {
       id: msg.id._serialized,
