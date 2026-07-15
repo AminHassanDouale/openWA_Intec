@@ -48,6 +48,13 @@ export class Session {
   @Column({ type: 'varchar', length: 10, nullable: true })
   proxyType: 'http' | 'https' | 'socks4' | 'socks5' | null;
 
+  // Diagnostics for session health: why/when it last dropped.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  lastDisconnectReason: string | null;
+
+  @Column({ type: dateColumnType(), nullable: true, transformer: DateTransformer })
+  lastDisconnectAt: Date | null;
+
   @Column({ type: dateColumnType(), nullable: true, transformer: DateTransformer })
   connectedAt: Date | null;
 

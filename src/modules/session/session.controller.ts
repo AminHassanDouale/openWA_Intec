@@ -26,6 +26,9 @@ export class SessionController {
       pushName: session.pushName,
       connectedAt: session.connectedAt,
       lastActive: session.lastActiveAt,
+      autoStart: session.autoStart,
+      lastDisconnectReason: session.lastDisconnectReason,
+      lastDisconnectAt: session.lastDisconnectAt,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };

@@ -410,6 +410,14 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
           action: 'disconnected',
         });
 
+        // Record why/when it dropped for the session-health view.
+        void this.sessionRepository
+          .update(id, {
+            lastDisconnectReason: (reason || 'unknown').slice(0, 255),
+            lastDisconnectAt: new Date(),
+          })
+          .catch(() => undefined);
+
         // Execute hook for disconnected event
         void this.hookManager.execute(
           'session:disconnected',

@@ -14,6 +14,10 @@ export interface Session {
   phone?: string;
   pushName?: string;
   lastActive?: string;
+  connectedAt?: string | null;
+  autoStart?: boolean;
+  lastDisconnectReason?: string | null;
+  lastDisconnectAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

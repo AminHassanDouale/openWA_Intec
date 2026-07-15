@@ -23,6 +23,15 @@ export class SessionResponseDto {
   @ApiPropertyOptional({ example: '2025-02-02T10:30:00Z' })
   lastActive?: Date | null;
 
+  @ApiPropertyOptional({ description: 'Whether the watchdog keeps this session running', example: true })
+  autoStart?: boolean;
+
+  @ApiPropertyOptional({ description: 'Reason the session last disconnected', example: 'NAVIGATION' })
+  lastDisconnectReason?: string | null;
+
+  @ApiPropertyOptional({ example: '2025-02-02T10:20:00Z' })
+  lastDisconnectAt?: Date | null;
+
   @ApiProperty({ example: '2025-02-02T09:00:00Z' })
   createdAt: Date;
 

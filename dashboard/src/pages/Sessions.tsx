@@ -481,6 +481,24 @@ export function Sessions() {
                     <span className="info-label">{t('sessions.card.lastActive')}</span>
                     <span className="info-value">{formatLastActive(session.lastActive)}</span>
                   </div>
+                  {session.autoStart !== undefined && (
+                    <div className="info-row">
+                      <span className="info-label">{t('sessions.card.autoRecover', { defaultValue: 'Auto-recover' })}</span>
+                      <span className="info-value">
+                        {session.autoStart
+                          ? `✓ ${t('common.on', { defaultValue: 'On' })}`
+                          : t('common.off', { defaultValue: 'Off' })}
+                      </span>
+                    </div>
+                  )}
+                  {session.lastDisconnectReason && (session.status === 'disconnected' || session.status === 'failed') && (
+                    <div className="info-row">
+                      <span className="info-label">{t('sessions.card.lastDrop', { defaultValue: 'Last drop' })}</span>
+                      <span className="info-value" title={session.lastDisconnectReason}>
+                        {session.lastDisconnectReason} · {formatLastActive(session.lastDisconnectAt ?? undefined)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
