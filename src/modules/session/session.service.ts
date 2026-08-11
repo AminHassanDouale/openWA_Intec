@@ -78,21 +78,26 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     // Backfill: any session that has linked before (has a phone) should be kept
     // running by the watchdog, so existing sessions auto-recover after this
     // upgrade without needing a manual start.
-    await this.sessionRepository
-      .createQueryBuilder()
-      .update()
-      .set({ autoStart: true })
-      .where('phone IS NOT NULL')
-      .execute()
-      .catch(() => undefined);
+    try {
+      await this.sessionRepository
+        .createQueryBuilder()
+        .update()
+        .set({ autoStart: true })
+        .where('phone IS NOT NULL')
+        .execute();
+    } catch {
+      /* older DB layout or a repo without a query builder — non-fatal */
+    }
 
     // Give the app a moment to finish booting, then start the watchdog. The
     // first tick restarts any autoStart session that isn't running (e.g. after
-    // a deploy/restart); subsequent ticks keep them alive.
+    // a deploy/restart); subsequent ticks keep them alive. `.unref()` so these
+    // timers never keep the process (or a test runner) alive on their own.
     this.watchdogTimer = setInterval(() => {
       void this.reconcileSessions();
     }, SessionService.WATCHDOG_INTERVAL_MS);
-    setTimeout(() => void this.reconcileSessions(), 8_000);
+    this.watchdogTimer.unref?.();
+    setTimeout(() => void this.reconcileSessions(), 8_000).unref?.();
   }
 
   /**
@@ -106,10 +111,11 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
   private async reconcileSessions(): Promise<void> {
     let candidates: Session[];
     try {
-      candidates = await this.sessionRepository.find({ where: { autoStart: true } });
+      candidates = (await this.sessionRepository.find({ where: { autoStart: true } })) ?? [];
     } catch {
       return;
     }
+    if (!Array.isArray(candidates)) return;
 
     for (const session of candidates) {
       if (this.engines.has(session.id)) continue; // already running/starting
