@@ -117,6 +117,14 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
           ...(executablePath ? { executablePath } : {}),
         },
         webVersionCache: { type: 'remote' as const, remotePath: webVersionUrl },
+        // Reclaim the session on a conflict (e.g. the same number opened in
+        // WhatsApp Web elsewhere) instead of being kicked/logged out — a common
+        // cause of the "disconnected, re-scan the QR" loop.
+        takeoverOnConflict: true,
+        takeoverTimeoutMs: 10_000,
+        // Never stop showing a QR while linking; keep waiting for auth.
+        qrMaxRetries: 0,
+        authTimeoutMs: 0,
       });
 
       this.setupEventHandlers();
