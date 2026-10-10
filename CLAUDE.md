@@ -115,7 +115,7 @@ Authoritative design/ops docs live in [docs/](docs/):
 | 09 | Testing strategy | 21 | Glossary |
 | 10 | DevOps / infrastructure | 22 | n8n integration |
 | 11 | Operational runbooks | 23 | Third-party notify integration |
-| 12 | Troubleshooting / FAQ | | |
+| 12 | Troubleshooting / FAQ | 24 | VPS deployment: wa.sahansolution.com |
 
 Also: [README.md](README.md), [INTEGRATION.md](INTEGRATION.md), [CHANGELOG.md](CHANGELOG.md).
 
@@ -129,6 +129,10 @@ This complements the user-facing [CHANGELOG.md](CHANGELOG.md) with engineering c
 ### 2026-10-10
 - **Added `CLAUDE.md`** (this file) as the project guidance + running work log, and
   prepared the repo to publish to the `openWA_Intec` GitHub repository.
+- **Added [docs/24-vps-deployment-sahansolution.md](docs/24-vps-deployment-sahansolution.md)** —
+  deployment runbook for hosting OpenWA at `https://wa.sahansolution.com` on the Ubuntu 24.04
+  VPS (`187.124.32.203`): Docker Compose with the built-in PostgreSQL profile, container bound
+  to `127.0.0.1:2785`, fronted by the host web server (nginx/apache) with Let's Encrypt TLS.
 
 ### Recent engine/session hardening (see git history)
 - `fix(session)`: make watchdog init test-safe and non-leaking (fix CI). — `3f3656f`
