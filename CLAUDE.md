@@ -116,6 +116,7 @@ Authoritative design/ops docs live in [docs/](docs/):
 | 10 | DevOps / infrastructure | 22 | n8n integration |
 | 11 | Operational runbooks | 23 | Third-party notify integration |
 | 12 | Troubleshooting / FAQ | 24 | VPS deployment: wa.sahansolution.com |
+|    |                       | 25 | API integration reference (all endpoints) |
 
 Also: [README.md](README.md), [INTEGRATION.md](INTEGRATION.md), [CHANGELOG.md](CHANGELOG.md).
 
@@ -140,6 +141,12 @@ This complements the user-facing [CHANGELOG.md](CHANGELOG.md) with engineering c
   the `/var/www/wa.sahansolution.com` `.env` is unused (port 2785 already taken). Active API key
   is the instance key from the container log (`owa_k1_...`). Restarting `openwa-api` affects all
   tenants. sahansolution gets its own named session `sahan-1`. See doc 24 "AS-DEPLOYED" note.
+
+### 2026-10-11
+- **Added [docs/25-api-integration-reference.md](docs/25-api-integration-reference.md)** — full
+  HTTP API reference (sessions, messages, **groups**, contacts, labels, status/stories, channels,
+  catalog, webhooks + HMAC signing, stats/health/admin) generated from the controllers/DTOs, with
+  PHP/Laravel + Node client snippets and a webhook receiver — for integrating OpenWA into other projects.
 
 ### Recent engine/session hardening (see git history)
 - `fix(session)`: make watchdog init test-safe and non-leaking (fix CI). — `3f3656f`
