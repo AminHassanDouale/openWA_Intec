@@ -133,6 +133,13 @@ This complements the user-facing [CHANGELOG.md](CHANGELOG.md) with engineering c
   deployment runbook for hosting OpenWA at `https://wa.sahansolution.com` on the Ubuntu 24.04
   VPS (`187.124.32.203`): Docker Compose with the built-in PostgreSQL profile, container bound
   to `127.0.0.1:2785`, fronted by the host web server (nginx/apache) with Let's Encrypt TLS.
+- **Deployed & went live** at `https://wa.sahansolution.com`: added DNS `A wa → 187.124.32.203`,
+  nginx reverse-proxy vhost → `127.0.0.1:2785`, Let's Encrypt cert (certbot --nginx).
+  **As-deployed = shared gateway**: the domain fronts the pre-existing `openwa-api` container
+  (from the `taxiconnectonline` compose project) that also runs `dtache`/`taxiconnect` sessions;
+  the `/var/www/wa.sahansolution.com` `.env` is unused (port 2785 already taken). Active API key
+  is the instance key from the container log (`owa_k1_...`). Restarting `openwa-api` affects all
+  tenants. sahansolution gets its own named session `sahan-1`. See doc 24 "AS-DEPLOYED" note.
 
 ### Recent engine/session hardening (see git history)
 - `fix(session)`: make watchdog init test-safe and non-leaking (fix CI). — `3f3656f`

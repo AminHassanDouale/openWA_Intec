@@ -10,6 +10,22 @@ the existing host web server, served at **https://wa.sahansolution.com**.
 - TLS: Let's Encrypt via the host web server (nginx or apache)
 - The container binds to `127.0.0.1:2785`; the host web server reverse-proxies the domain to it.
 
+> **AS-DEPLOYED (2026-10-11): shared gateway.** On this VPS, port `2785` was already
+> served by an existing OpenWA container (`openwa-api`, from the `taxiconnectonline`
+> compose project) that also hosts the `dtache`/`taxiconnect` WhatsApp sessions. We chose
+> to **share** that instance rather than run a second one, so `wa.sahansolution.com` is an
+> HTTPS front door to the existing gateway. Consequences:
+> - The `.env` created under `/var/www/wa.sahansolution.com` is **not** used by the running
+>   container (its `up` would conflict on port 2785). That folder is kept only as the repo
+>   checkout / reference. Do **not** `docker compose up` there.
+> - The active API key is the instance key printed in the container's startup log
+>   (`owa_k1_...`), retrievable via `docker logs openwa-api | grep 'API Key' -A1`.
+> - **Restarting `openwa-api` restarts dtache/taxiconnect sessions too** — the watchdog
+>   reconnects all of them. Treat restarts as affecting all tenants.
+> - sahansolution uses its own named session (e.g. `sahan-1`) alongside the others.
+> To isolate later, run a second instance on a different port (e.g. 2786) with its own
+> `.env`/data and repoint the nginx `proxy_pass`.
+
 The OpenWA container serves everything on one port `2785`:
 `/` = dashboard UI, `/api/*` = REST API + Swagger, `/socket.io` = realtime (QR/status).
 
